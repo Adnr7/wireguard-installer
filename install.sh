@@ -1,44 +1,79 @@
 #!/bin/bash
 set -e
 
-source ./lib/utils.sh
-source ./lib/network.sh
+ERRORS=()
+WARNINGS=()
+LOG_FILE="/var/log/wg-install.log"
 
-require_root
+log() { echo "[✔] $*" | tee -a "$LOG_FILE"; }
+warn() { echo "[!] $*" | tee -a "$LOG_FILE"; WARNINGS+=("$*"); }
+error() { echo "[✘] $*" | tee -a "$LOG_FILE"; ERRORS+=("$*"); }
 
-CONFIG_FILE="./config.env"
-[[ -f "$CONFIG_FILE" ]] && source "$CONFIG_FILE"
+trap 'error "Failed at line $LINENO"; exit 1' ERR
 
-echo "=== WireGuard Auto Installer ==="
+# ===== ROOT CHECK =====
+[[ $EUID -ne 0 ]] && { echo "Run with sudo"; exit 1; }
 
-# ===== AUTO MODE =====
-if [[ "$AUTO_MODE" == "true" ]]; then
-    echo "[→] Running in AUTO mode"
+echo "=== WireGuard Installer ==="
+echo "Log: $LOG_FILE"
+echo "==================================="
 
-    SERVER_IP="${SERVER_IP:-$(detect_ip)}"
-    WG_PORT="${WG_PORT:-51820}"
-    VPN_SUBNET="${VPN_SUBNET:-10.8.0.0/24}"
-    CLIENT_DNS="${CLIENT_DNS:-1.1.1.1,8.8.8.8}"
-    NUM_CLIENTS="${NUM_CLIENTS:-1}"
-    CLIENT_PREFIX="${CLIENT_PREFIX:-client}"
-    NET_IFACE="${NET_IFACE:-$(detect_iface)}"
-    QR_CODES="${QR_CODES:-n}"
+# ===== DETECT IP =====
+DETECTED_IP=$(curl -s https://api.ipify.org || hostname -I | awk '{print $1}')
 
-else
-    echo "[→] Interactive mode"
+read -p "Server IP [$DETECTED_IP]: " SERVER_IP
+SERVER_IP=${SERVER_IP:-$DETECTED_IP}
 
-    read -p "Server IP: " SERVER_IP
-    read -p "Port: " WG_PORT
-fi
+# ===== INPUTS =====
+read -p "Port [51820]: " WG_PORT
+WG_PORT=${WG_PORT:-51820}
 
-echo "[✔] Using IP: $SERVER_IP"
-echo "[✔] Interface: $NET_IFACE"
+read -p "VPN subnet [10.8.0.0/24]: " VPN_SUBNET
+VPN_SUBNET=${VPN_SUBNET:-10.8.0.0/24}
+
+VPN_BASE=$(echo "$VPN_SUBNET" | cut -d. -f1-3)
+SERVER_VPN_IP="$VPN_BASE.1"
+
+read -p "DNS [1.1.1.1, 8.8.8.8]: " CLIENT_DNS
+CLIENT_DNS=${CLIENT_DNS:-"1.1.1.1, 8.8.8.8"}
+
+read -p "Number of clients [1]: " NUM_CLIENTS
+NUM_CLIENTS=${NUM_CLIENTS:-1}
+
+read -p "Client prefix [client]: " CLIENT_PREFIX
+CLIENT_PREFIX=${CLIENT_PREFIX:-client}
+
+DEFAULT_IFACE=$(ip route | grep '^default' | awk '{print $5}' | head -n1)
+read -p "Interface [$DEFAULT_IFACE]: " NET_IFACE
+NET_IFACE=${NET_IFACE:-$DEFAULT_IFACE}
+
+read -p "Generate QR codes? [y/N]: " QR
+QR=${QR:-n}
+
+echo "==================================="
+echo "IP: $SERVER_IP"
+echo "Port: $WG_PORT"
+echo "Clients: $NUM_CLIENTS"
+echo "==================================="
+
+read -p "Proceed? [Y/n]: " CONFIRM
+[[ "${CONFIRM:-y}" != "y" ]] && exit 0
+
+# ===== UPDATE SYSTEM =====
+echo "[→] Updating system..."
+apt update -y >> "$LOG_FILE" 2>&1 || warn "apt update failed"
+apt upgrade -y >> "$LOG_FILE" 2>&1 || warn "apt upgrade failed"
 
 # ===== INSTALL =====
-apt update -y
-apt install -y wireguard wireguard-tools iptables curl qrencode
+echo "[→] Installing packages..."
+apt install -y wireguard wireguard-tools iptables curl qrencode >> "$LOG_FILE" 2>&1 \
+    || error "Package install failed"
 
-# ===== CONFIG =====
+# ===== ENABLE FORWARDING =====
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.d/wg.conf
+sysctl -p /etc/sysctl.d/wg.conf >> "$LOG_FILE" 2>&1 || warn "sysctl failed"
+
+# ===== KEYS =====
 WG_DIR="/etc/wireguard"
 CLIENT_DIR="$WG_DIR/clients"
 mkdir -p "$CLIENT_DIR"
@@ -46,11 +81,10 @@ mkdir -p "$CLIENT_DIR"
 SERVER_PRIV=$(wg genkey)
 SERVER_PUB=$(echo "$SERVER_PRIV" | wg pubkey)
 
-VPN_BASE=$(echo "$VPN_SUBNET" | cut -d. -f1-3)
-
+# ===== SERVER CONFIG =====
 cat > "$WG_DIR/wg0.conf" <<EOF
 [Interface]
-Address = ${VPN_BASE}.1/24
+Address = ${SERVER_VPN_IP}/24
 ListenPort = $WG_PORT
 PrivateKey = $SERVER_PRIV
 
@@ -74,7 +108,9 @@ PresharedKey = $PSK
 AllowedIPs = $CLIENT_IP/32
 EOF
 
-    cat > "$CLIENT_DIR/${CLIENT_PREFIX}${i}.conf" <<EOF
+    CONF="$CLIENT_DIR/${CLIENT_PREFIX}${i}.conf"
+
+    cat > "$CONF" <<EOF
 [Interface]
 PrivateKey = $PRIV
 Address = $CLIENT_IP/24
@@ -88,13 +124,31 @@ AllowedIPs = 0.0.0.0/0
 PersistentKeepalive = 25
 EOF
 
+    if [[ "$QR" =~ ^[Yy]$ ]]; then
+        qrencode -t PNG -o "$CLIENT_DIR/${CLIENT_PREFIX}${i}.png" < "$CONF"
+    fi
+
+    log "Created client ${CLIENT_PREFIX}${i}"
 done
 
-# ===== ENABLE =====
-sysctl -w net.ipv4.ip_forward=1
+# ===== START =====
+systemctl enable wg-quick@wg0 >> "$LOG_FILE" 2>&1 || error "Enable failed"
+systemctl start wg-quick@wg0 >> "$LOG_FILE" 2>&1 || error "Start failed"
 
-systemctl enable wg-quick@wg0
-systemctl start wg-quick@wg0
+# ===== VERIFY =====
+if wg show wg0 >> "$LOG_FILE" 2>&1; then
+    log "WireGuard running"
+else
+    error "WireGuard not running"
+fi
 
-echo "[✔] WireGuard installed!"
-echo "Client files: $CLIENT_DIR"
+# ===== SUMMARY =====
+echo "==================================="
+echo "INSTALL SUMMARY"
+echo "==================================="
+
+[[ ${#WARNINGS[@]} -gt 0 ]] && echo "Warnings:" && printf '%s\n' "${WARNINGS[@]}"
+[[ ${#ERRORS[@]} -gt 0 ]] && echo "Errors:" && printf '%s\n' "${ERRORS[@]}"
+
+echo "Client configs: $CLIENT_DIR"
+echo "==================================="
