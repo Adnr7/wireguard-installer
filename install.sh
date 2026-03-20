@@ -63,16 +63,9 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 # ── TTY fix ───────────────────────────────────────────────────────────────────
-# When run via `curl | sudo bash`, stdin is the pipe — not the terminal.
-# This causes all `read` prompts to instantly get empty input.
-# Fix: save script to a temp file and re-exec with /dev/tty as stdin.
-if [[ ! -t 0 ]]; then
-    SCRIPT_TEMP=$(mktemp /tmp/wg-install-XXXXXX.sh)
-    cat > "$SCRIPT_TEMP"
-    chmod +x "$SCRIPT_TEMP"
-    exec bash "$SCRIPT_TEMP" < /dev/tty
-    exit $?
-fi
+# When run via `curl | sudo bash`, stdin is the pipe, not the terminal.
+# Fix: point all read commands explicitly at /dev/tty.
+TTY=/dev/tty
 
 # ── Init log ──────────────────────────────────────────────────────────────────
 mkdir -p /var/log
@@ -88,7 +81,7 @@ DETECTED_IP=$(curl -s --max-time 5 https://api.ipify.org 2>/dev/null || \
               curl -s --max-time 5 https://ifconfig.me 2>/dev/null || \
               ip route get 1.1.1.1 | awk '{print $7; exit}' 2>/dev/null || echo "")
 
-read -rp "$(echo -e "${CYAN}Server public IP${NC} [detected: ${DETECTED_IP:-not found}]: ")" SERVER_IP
+read -rp "$(echo -e "${CYAN}Server public IP${NC} [detected: ${DETECTED_IP:-not found}]: ")" SERVER_IP < "$TTY"
 SERVER_IP="${SERVER_IP:-$DETECTED_IP}"
 
 if [[ -z "$SERVER_IP" ]]; then
@@ -98,22 +91,22 @@ if [[ -z "$SERVER_IP" ]]; then
 fi
 
 # WireGuard port
-read -rp "$(echo -e "${CYAN}WireGuard listen port${NC} [default: 51820]: ")" WG_PORT
+read -rp "$(echo -e "${CYAN}WireGuard listen port${NC} [default: 51820]: ")" WG_PORT < "$TTY"
 WG_PORT="${WG_PORT:-51820}"
 
 # VPN subnet
-read -rp "$(echo -e "${CYAN}VPN subnet${NC} [default: 10.8.0.0/24]: ")" VPN_SUBNET
+read -rp "$(echo -e "${CYAN}VPN subnet${NC} [default: 10.8.0.0/24]: ")" VPN_SUBNET < "$TTY"
 VPN_SUBNET="${VPN_SUBNET:-10.8.0.0/24}"
 VPN_BASE=$(echo "$VPN_SUBNET" | cut -d. -f1-3)   # e.g. 10.8.0
 SERVER_VPN_IP="${VPN_BASE}.1"
 
 # DNS for clients
-read -rp "$(echo -e "${CYAN}DNS for clients${NC} [default: 1.1.1.1, 8.8.8.8]: ")" CLIENT_DNS
+read -rp "$(echo -e "${CYAN}DNS for clients${NC} [default: 1.1.1.1, 8.8.8.8]: ")" CLIENT_DNS < "$TTY"
 CLIENT_DNS="${CLIENT_DNS:-1.1.1.1, 8.8.8.8}"
 
 # Number of clients
 while true; do
-    read -rp "$(echo -e "${CYAN}Number of client configs to generate${NC} [default: 1]: ")" NUM_CLIENTS
+    read -rp "$(echo -e "${CYAN}Number of client configs to generate${NC} [default: 1]: ")" NUM_CLIENTS < "$TTY"
     NUM_CLIENTS="${NUM_CLIENTS:-1}"
     if [[ "$NUM_CLIENTS" =~ ^[1-9][0-9]*$ ]] && [[ "$NUM_CLIENTS" -le 253 ]]; then
         break
@@ -122,18 +115,18 @@ while true; do
 done
 
 # Client name prefix
-read -rp "$(echo -e "${CYAN}Client name prefix${NC} [default: client]: ")" CLIENT_PREFIX
+read -rp "$(echo -e "${CYAN}Client name prefix${NC} [default: client]: ")" CLIENT_PREFIX < "$TTY"
 CLIENT_PREFIX="${CLIENT_PREFIX:-client}"
 
 # Network interface (for masquerade / NAT)
 DEFAULT_IFACE=$(ip route | grep '^default' | awk '{print $5}' | head -n1)
-read -rp "$(echo -e "${CYAN}Network interface for NAT masquerade${NC} [detected: ${DEFAULT_IFACE:-eth0}]: ")" NET_IFACE
+read -rp "$(echo -e "${CYAN}Network interface for NAT masquerade${NC} [detected: ${DEFAULT_IFACE:-eth0}]: ")" NET_IFACE < "$TTY"
 NET_IFACE="${NET_IFACE:-${DEFAULT_IFACE:-eth0}}"
 
 # QR codes for clients?
 QR_CODES="n"
 if command -v qrencode &>/dev/null || apt-cache show qrencode &>/dev/null 2>&1; then
-    read -rp "$(echo -e "${CYAN}Generate QR codes for mobile clients?${NC} [Y/n]: ")" QR_CODES
+    read -rp "$(echo -e "${CYAN}Generate QR codes for mobile clients?${NC} [Y/n]: ")" QR_CODES < "$TTY"
     QR_CODES="${QR_CODES:-y}"
 fi
 
@@ -155,7 +148,7 @@ echo -e "  Clients        : ${NUM_CLIENTS} (prefix: ${CLIENT_PREFIX})"
 echo -e "  NAT Interface  : ${NET_IFACE}"
 echo -e "  QR Codes       : ${QR_CODES}"
 echo ""
-read -rp "$(echo -e "${YELLOW}Proceed with installation? [Y/n]: ")" CONFIRM
+read -rp "$(echo -e "${YELLOW}Proceed with installation? [Y/n]: ")" CONFIRM < "$TTY"
 CONFIRM="${CONFIRM:-y}"
 [[ "$CONFIRM" =~ ^[Yy]$ ]] || { info "Aborted."; exit 0; }
 
