@@ -62,6 +62,18 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+# ── TTY fix ───────────────────────────────────────────────────────────────────
+# When run via `curl | sudo bash`, stdin is the pipe — not the terminal.
+# This causes all `read` prompts to instantly get empty input.
+# Fix: save script to a temp file and re-exec with /dev/tty as stdin.
+if [[ ! -t 0 ]]; then
+    SCRIPT_TEMP=$(mktemp /tmp/wg-install-XXXXXX.sh)
+    cat > "$SCRIPT_TEMP"
+    chmod +x "$SCRIPT_TEMP"
+    exec bash "$SCRIPT_TEMP" < /dev/tty
+    exit $?
+fi
+
 # ── Init log ──────────────────────────────────────────────────────────────────
 mkdir -p /var/log
 echo "=== WireGuard Install Log — $(date) ===" > "$LOG_FILE"
