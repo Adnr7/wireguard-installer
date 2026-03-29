@@ -72,13 +72,13 @@ get_next_client_ip() {
 }
 
 get_server_public_key() {
-    if [[ -f "$WG_DIR/server_public.key" ]]; then
-        cat "$WG_DIR/server_public.key"
-    elif [[ -f "$WG_CONF" ]]; then
+    if [[ -f "$WG_CONF" ]]; then
         # Extract private key from config, derive public key
         local priv
         priv=$(grep -m1 '^PrivateKey' "$WG_CONF" | awk '{print $3}')
         echo "$priv" | wg pubkey
+    elif [[ -f "$WG_DIR/server_public.key" ]]; then
+        cat "$WG_DIR/server_public.key"
     else
         fail "Cannot find server public key"
     fi
@@ -173,7 +173,7 @@ Address = ${SERVER_VPN_IP}/24
 ListenPort = ${WG_PORT}
 PrivateKey = ${SERVER_PRIV}
 
-PostUp = iptables -I INPUT -p udp --dport ${WG_PORT} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${NET_IFACE} -j MASQUERADE; iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT
+PostUp = iptables -I INPUT -p udp --dport ${WG_PORT} -j ACCEPT; iptables -t nat -A POSTROUTING -o ${NET_IFACE} -j MASQUERADE; iptables -I FORWARD -i wg0 -j ACCEPT; iptables -I FORWARD -o wg0 -j ACCEPT
 PostDown = iptables -D INPUT -p udp --dport ${WG_PORT} -j ACCEPT; iptables -t nat -D POSTROUTING -o ${NET_IFACE} -j MASQUERADE; iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT
 EOF
     chmod 600 "$WG_CONF"
