@@ -25,53 +25,53 @@ curl -fsSL https://raw.githubusercontent.com/Adnr7/wireguard-installer/main/inst
 
 ## 📋 What It Does
 
-The script handles everything from a fresh server to a fully working VPN:
+This script is purely autonomous and instantly sets up your server to accept secure VPN connections:
 
 | Step | Action |
 |------|--------|
 | 1 | System update & upgrade (`apt update && apt upgrade`) |
 | 2 | Install WireGuard, wireguard-tools, iptables, qrencode |
 | 3 | Enable persistent IPv4/IPv6 forwarding via sysctl |
-| 4 | Auto-detect public IP, network interface |
-| 5 | Generate server + per-client key pairs + preshared keys |
-| 6 | Write `/etc/wireguard/wg0.conf` with NAT/masquerade rules |
-| 7 | Write client `.conf` files to `/etc/wireguard/clients/` |
-| 8 | Configure UFW (or raw iptables if UFW is absent) |
-| 9 | Enable & start `wg-quick@wg0` as a systemd service |
-| 10 | Verify interface is UP, port is listening |
-| 11 | Show error/warning summary at the end |
+| 4 | Auto-detect public IP, network interface, and optimal IPs |
+| 5 | Generate server + client key pairs |
+| 6 | Create robust, cloud-ready NAT/masquerade firewall rules |
+| 7 | Enable & start `wg-quick@wg0` as a systemd service |
+| 8 | Instantly generate your very first `.conf` profile |
 
 ---
 
-## 🖥️ Interactive Prompts
+## 🛠️ Instant Profile Management
 
-The script will ask you:
+The same script used for installation now doubles as your robust VPN profile manager. Once WireGuard is installed, you can effortlessly manage clients: 
 
-```
-Server public IP        → auto-detected, press Enter to confirm
-Listen port             → default: 51820
-VPN subnet              → default: 10.8.0.0/24
-DNS for clients         → default: 1.1.1.1, 8.8.8.8
-Number of clients       → e.g. 3  (generates client1, client2, client3)
-Client name prefix      → default: client
-NAT interface           → auto-detected from default route
-Generate QR codes?      → Y/n  (for mobile clients)
+```bash
+# Add a new VPN profile (Hot-loads instantly, no restart required)
+sudo bash install.sh add-client my-laptop
+sudo bash install.sh add-client my-phone
+
+# List all active VPN profiles
+sudo bash install.sh list-clients
+
+# Show the QR code or config for a specific profile
+sudo bash install.sh show-client my-phone
+
+# Remove a VPN profile and immediately revoke its access
+sudo bash install.sh remove-client my-laptop
 ```
 
 ---
 
 ## 📁 Output Files
 
-After installation:
+After running the script or adding clients, your files will look like this:
 
 ```
 /etc/wireguard/
-├── wg0.conf                  ← Server config
+├── wg0.conf                  ← Secure Server Config
 └── clients/
-    ├── client1.conf          ← Import into WireGuard app
-    ├── client1.png           ← QR code (if enabled)
-    ├── client2.conf
-    ├── client2.png
+    ├── client1.conf          ← First profile automatically created
+    ├── client1.png           ← QR code for your phone
+    ├── my-laptop.conf        ← Added via `add-client`
     └── ...
 ```
 
@@ -80,56 +80,37 @@ After installation:
 ## 📱 Connecting a Client
 
 ### Desktop (Linux / macOS / Windows)
-Import the `.conf` file into the WireGuard app.
+Download the `.conf` file from `/etc/wireguard/clients/` and import it into the WireGuard app.
 
 ### Mobile (iOS / Android)
-Scan the `.png` QR code directly from the WireGuard mobile app.
-
-### Linux CLI
+View the `.png` QR code natively in your terminal using the script, and scan it directly from the WireGuard mobile app:
 ```bash
-sudo wg-quick up /etc/wireguard/clients/client1.conf
+sudo bash install.sh show-client client1
 ```
-
----
-
-## 🛠️ Useful Commands
-
-```bash
-# Check WireGuard status & connected peers
-sudo wg show
-
-# Restart WireGuard
-sudo systemctl restart wg-quick@wg0
-
-# Stop WireGuard
-sudo systemctl stop wg-quick@wg0
-
-# View live logs
-sudo journalctl -fu wg-quick@wg0
-
-# Check install log
-cat /var/log/wireguard-install.log
-```
-
----
-
-## 🗑️ Uninstall
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Adnr7/wireguard-installer/main/uninstall.sh | sudo bash
-```
-
-This will stop the service, remove all WireGuard packages, and delete `/etc/wireguard/` (after a confirmation prompt).
 
 ---
 
 ## ⚠️ OCI / Cloud Firewall Note
 
-If you're on **Oracle Cloud (OCI)**, AWS, GCE, or any provider with an external firewall/security group, you **must also open UDP port 51820** in the cloud console — the script only handles the OS-level firewall.
+This script generates highly sophisticated OS-level rules (`iptables -I FORWARD`) capable of cutting through the restrictive default firewalls on platforms like **Oracle Cloud (OCI)**, AWS, and Azure, so your internet routing will work perfectly!
+
+However, **you must still open UDP port 51820 manually in your Cloud Provider's Web Console**, otherwise the VPN connection will never reach the server at all.
 
 For OCI specifically:
-- Go to **VCN → Security Lists → Add Ingress Rule**
-- Protocol: UDP | Port: 51820
+- Go to **VCN → Security Lists → Default Security List → Add Ingress Rule**
+- Protocol: UDP | Source CIDR: `0.0.0.0/0` | Destination Port: `51820`
+
+---
+
+## 🗑️ Uninstall
+
+Uninstalling WireGuard and scrubbing all traces of configs is now handled natively via the script. You no longer need a separate `uninstall.sh`. 
+
+```bash
+sudo bash install.sh uninstall
+```
+
+This will stop the service, remove all WireGuard packages, and explicitly delete `/etc/wireguard/` (after a safety confirmation prompt).
 
 ---
 
