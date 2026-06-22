@@ -45,18 +45,10 @@ This script is purely autonomous and instantly sets up your server to accept sec
 The same script used for installation now doubles as your robust VPN profile manager. Once WireGuard is installed, you can effortlessly manage clients: 
 
 ```bash
-# Add a new VPN profile (Hot-loads instantly, no restart required)
-sudo bash install.sh add-client my-laptop
-sudo bash install.sh add-client my-phone
-
-# List all active VPN profiles
-sudo bash install.sh list-clients
-
-# Show the QR code or config for a specific profile
-sudo bash install.sh show-client my-phone
-
-# Remove a VPN profile and immediately revoke its access
-sudo bash install.sh remove-client my-laptop
+Add a new client: sudo bash ~/wireguard-install.sh add-client <name>
+List clients: sudo bash ~/wireguard-install.sh list-clients
+Show QR code/Config: sudo bash ~/wireguard-install.sh show-client <name>
+Remove a client: sudo bash ~/wireguard-install.sh remove-client <name>
 ```
 
 ---
